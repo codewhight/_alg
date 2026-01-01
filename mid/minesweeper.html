@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>踩地雷 Minesweeper</title>
+  <style>
+    :root{--cell-size:32px;--gap:4px}
+    body{font-family:system-ui,Segoe UI,Apple SD Gothic Neo,"Noto Sans TC",sans-serif;display:flex;flex-direction:column;align-items:center;padding:20px}
+    h1{margin:0 0 10px}
+    .controls{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+    select,button{padding:6px 10px;font-size:14px}
+    .status{margin-left:8px;font-weight:600}
+    #board{display:grid;gap:var(--gap);background:#e5e5e5;padding:8px;border-radius:8px}
+    .cell{width:var(--cell-size);height:var(--cell-size);display:flex;align-items:center;justify-content:center;background:#9aa7b2;color:#fff;font-weight:700;border-radius:4px;cursor:pointer;user-select:none}
+    .cell.revealed{background:#e7eef2;color:#000;cursor:default;font-weight:600}
+    .cell.mine{background:#c0392b;color:#fff}
+    .cell.flag{background:#f39c12}
+    .cell.zero{color:#444}
+    .controls-wrap{display:flex;flex-direction:column;align-items:flex-start}
+    .footer{margin-top:12px;color:#555;font-size:13px}
+    @media (max-width:600px){:root{--cell-size:28px;--gap:3px}}
+  </style>
+</head>
+<body>
+  <h1>踩地雷 💣</h1>
+  <div class="controls">
+    <div class="controls-wrap">
+      <div style="display:flex;gap:8px;align-items:center">
+        <label for="difficulty">難易度</label>
+        <select id="difficulty">
+          <option value="easy">簡單 9×9（10顆地雷）</option>
+          <option value="medium">普通 16×16（40顆地雷）</option>
+          <option value="hard">困難 16×30（99顆地雷）</option>
+        </select>
+        <button id="startBtn">開始遊戲</button>
+        <button id="revealAllBtn">一次展開所有格子</button>
+        <button id="resetBtn">重複遊玩</button>
+      </div>
+      <div style="margin-top:6px">
+        <span>地雷總數: <span id="mineCount">0</span></span>
+        <span class="status" id="gameMsg"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="boardContainer">
+    <div id="board"></div>
+  </div>
+
+  <div class="footer">提示：右鍵可標記旗子（旗子數會影響右上顯示的剩餘地雷）。開啟或重新開始遊戲後即可操作。</div>
+
+<script>
+(function(){
+  const difficultySelect = document.getElementById('difficulty');
+  const startBtn = document.getElementById('startBtn');
+  const revealAllBtn = document.getElementById('revealAllBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const boardEl = document.getElementById('board');
+  const mineCountEl = document.getElementById('mineCount');
+  const gameMsg = document.getElementById('gameMsg');
+
+  let rows=9, cols=9, mines=10;
+  let cells = []; // array of cell objects
+  let started=false, gameOver=false, flags=0, revealedCount=0;
+
+  const diffs = {
+    easy: {r:9,c:9,m:10},
+    medium: {r:16,c:16,m:40},
+    hard: {r:16,c:30,m:99}
+  };
+
+  function setDifficulty(){
+    const d = difficultySelect.value;
+    rows = diffs[d].r; cols = diffs[d].c; mines = diffs[d].m;
+    mineCountEl.textContent = mines;
+    // adjust board width to keep layout
+    boardEl.style.gridTemplateColumns = `repeat(${cols}, var(--cell-size))`;
+  }
+
+  function initGrid(){
+    cells = Array(rows*cols).fill(null).map((_,i)=>({
+      index:i,
+      row: Math.floor(i/cols),
+      col: i%cols,
+      isMine:false,
+      revealed:false,
+      flagged:false,
+      adjacent:0
+    }));
+    boardEl.innerHTML = '';
+    boardEl.style.gridTemplateColumns = `repeat(${cols}, var(--cell-size))`;
+    for(let i=0;i<cells.length;i++){
+      const div = document.createElement('div');
+      div.className = 'cell';
+      div.dataset.index = i;
+      div.addEventListener('click', onCellClick);
+      div.addEventListener('contextmenu', onCellRightClick);
+      boardEl.appendChild(div);
+    }
+    flags = 0; revealedCount=0; gameOver=false;
+    updateMsg('準備中');
+  }
+
+  function placeMines(firstIndex=-1){
+    // place mines randomly, avoid placing on firstIndex to allow safe first click
+    let available = Array.from({length:cells.length},(_,i)=>i).filter(i=>i!==firstIndex);
+    for(let k=0;k<mines;k++){
+      const pos = Math.floor(Math.random()*available.length);
+      const idx = available.splice(pos,1)[0];
+      cells[idx].isMine = true;
+    }
+    // compute adjacents
+    for(const cell of cells){
+      if(cell.isMine) continue;
+      cell.adjacent = neighbors(cell.row, cell.col).filter(n=>cells[n].isMine).length;
+    }
+  }
+
+  function neighbors(r,c){
+    const arr=[];
+    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+      if(dr===0 && dc===0) continue;
+      const nr=r+dr, nc=c+dc;
+      if(nr>=0 && nr<rows && nc>=0 && nc<cols) arr.push(nr*cols+nc);
+    }
+    return arr;
+  }
+
+  function onCellClick(e){
+    if(gameOver) return;
+    const i = Number(e.currentTarget.dataset.index);
+    if(!started){
+      // first click: generate mines avoiding first click
+      placeMines(i);
+      started = true; updateMsg('遊戲進行中');
+    }
+    const cell = cells[i];
+    if(cell.flagged || cell.revealed) return;
+    reveal(i);
+    checkWin();
+  }
+
+  function onCellRightClick(e){
+    e.preventDefault();
+    if(gameOver || !started) return;
+    const i = Number(e.currentTarget.dataset.index);
+    const cell = cells[i];
+    if(cell.revealed) return;
+    cell.flagged = !cell.flagged;
+    const el = boardEl.children[i];
+    el.textContent = cell.flagged ? '🚩' : '';
+    el.classList.toggle('flag', cell.flagged);
+    flags += cell.flagged?1:-1;
+    mineCountEl.textContent = mines - flags;
+  }
+
+  function reveal(i){
+    const cell = cells[i];
+    if(cell.revealed || cell.flagged) return;
+    cell.revealed = true; revealedCount++;
+    const el = boardEl.children[i];
+    el.classList.add('revealed');
+    if(cell.isMine){
+      el.classList.add('mine');
+      el.textContent = '💣';
+      // game over
+      gameOver = true; revealAll(true); updateMsg('踩到地雷，遊戲結束 😭');
+      return;
+    }
+    if(cell.adjacent>0){
+      el.textContent = cell.adjacent;
+      el.classList.add('num'+cell.adjacent);
+    } else {
+      el.textContent = '';
+      el.classList.add('zero');
+      // flood fill
+      for(const n of neighbors(cell.row, cell.col)) reveal(n);
+    }
+  }
+
+  function revealAll(showMinesOnly=false){
+    for(let i=0;i<cells.length;i++){
+      const c = cells[i];
+      const el = boardEl.children[i];
+      if(c.isMine){
+        el.classList.add('revealed','mine');
+        el.textContent = '💣';
+      } else if(!showMinesOnly){
+        if(!c.revealed){
+          c.revealed = true;
+          el.classList.add('revealed');
+          if(c.adjacent>0) el.textContent = c.adjacent;
+        }
+      }
+    }
+    gameOver = true;
+  }
+
+  function updateMsg(text){ gameMsg.textContent = text; }
+
+  function checkWin(){
+    if(gameOver) return;
+    const totalSafe = cells.length - mines;
+    if(revealedCount >= totalSafe){
+      gameOver = true; updateMsg('恭喜過關 🎉');
+      revealAll(true);
+    }
+  }
+
+  // Controls
+  startBtn.addEventListener('click', ()=>{
+    setDifficulty();
+    initGrid();
+    // place mines when first click occurs; but we can show a fresh board
+    started = false; gameOver = false; flags = 0; revealedCount = 0;
+    mineCountEl.textContent = mines;
+    updateMsg('請點選格子開始（第一擊安全）');
+  });
+
+  revealAllBtn.addEventListener('click', ()=>{
+    revealAll(false);
+    updateMsg('所有格子已展開');
+  });
+
+  resetBtn.addEventListener('click', ()=>{
+    setDifficulty();
+    initGrid();
+    started=false; gameOver=false; flags=0; revealedCount=0; mineCountEl.textContent = mines;
+    updateMsg('已重新開始');
+  });
+
+  difficultySelect.addEventListener('change', ()=>{
+    setDifficulty();
+    // live change doesn't recreate board until start/reset
+  });
+
+  // helper: call API
+  async function callApi(path, method='GET', body=null){
+    const opts={method,headers:{'Content-Type':'application/json'}};
+    if(body) opts.body = JSON.stringify(body);
+    const res = await fetch(path, opts);
+    if(!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  function buildBoard(r,c){
+    rows=r; cols=c;
+    boardEl.innerHTML='';
+    boardEl.style.gridTemplateColumns = `repeat(${cols}, var(--cell-size))`;
+    for(let i=0;i<rows*cols;i++){
+      const div = document.createElement('div');
+      div.className='cell';
+      div.dataset.index = i;
+      div.addEventListener('click', onCellClick);
+      div.addEventListener('contextmenu', onCellRightClick);
+      boardEl.appendChild(div);
+    }
+  }
+
+  function renderCells(cellsArr){
+    cells = cellsArr;
+    for(const c of cells){
+      const el = boardEl.children[c.index];
+      el.className = 'cell';
+      if(c.revealed) el.classList.add('revealed');
+      if(c.flagged) el.classList.add('flag');
+      if(c.revealed){
+        if(c.isMine){ el.classList.add('mine'); el.textContent='💣'; }
+        else if(c.adjacent>0){ el.textContent = c.adjacent; }
+        else { el.textContent=''; el.classList.add('zero'); }
+      } else {
+        el.textContent = c.flagged ? '🚩' : '';
+      }
+    }
+  }
+
+  async function startNewGame(){
+    try{
+      const diff = difficultySelect.value;
+      const data = await callApi('/api/new_game','POST',{difficulty:diff});
+      rows = data.rows; cols = data.cols; mines = data.mines;
+      buildBoard(rows, cols);
+      renderCells(data.cells);
+      mineCountEl.textContent = data.remaining_mines;
+      updateMsg('遊戲已開始');
+    }catch(err){
+      updateMsg('無法開始遊戲: '+err.message);
+    }
+  }
+
+  async function doReveal(idx){
+    try{
+      const data = await callApi('/api/reveal','POST',{index:idx});
+      renderCells(data.cells);
+      mineCountEl.textContent = data.remaining_mines ?? mineCountEl.textContent;
+      if(data.gameOver){
+        updateMsg('遊戲結束');
+      }
+    }catch(err){ updateMsg('錯誤: '+err.message); }
+  }
+
+  async function doFlag(idx){
+    try{
+      const data = await callApi('/api/flag','POST',{index:idx});
+      renderCells(data.cells);
+      mineCountEl.textContent = data.remaining_mines;
+    }catch(err){ updateMsg('錯誤: '+err.message); }
+  }
+
+  async function doRevealAll(){
+    try{
+      const data = await callApi('/api/reveal_all','POST');
+      renderCells(data.cells);
+      const si = data.startIndex;
+      if(si !== null && si !== undefined){
+        const r = Math.floor(si/cols)+1;
+        const c = (si%cols)+1;
+        updateMsg(`已選開始格：(${r},${c})，所有格子已展開，遊戲結束`);
+      } else {
+        updateMsg('所有格子已展開，遊戲結束');
+      }
+    }catch(err){ updateMsg('錯誤: '+err.message); }
+  }
+
+  // Controls
+  startBtn.addEventListener('click', startNewGame);
+  resetBtn.addEventListener('click', startNewGame);
+  revealAllBtn.addEventListener('click', doRevealAll);
+
+  difficultySelect.addEventListener('change', ()=>{
+    // auto-start new game on difficulty change
+    startNewGame();
+  });
+
+  function onCellClick(e){
+    const i = Number(e.currentTarget.dataset.index);
+    doReveal(i);
+  }
+
+  function onCellRightClick(e){
+    e.preventDefault();
+    const i = Number(e.currentTarget.dataset.index);
+    doFlag(i);
+  }
+
+  // initial: start a game automatically
+  (async ()=>{ await startNewGame(); })();
+
+  // prevent context menu on board for smoother right-click flags
+  boardEl.addEventListener('contextmenu', e=>e.preventDefault());
+
+})();
+</script>
+</body>
+</html>
