@@ -9,5 +9,4 @@ https://gemini.google.com/share/4878b9681b86
 優點：程式碼結構簡單：不需要複雜的遞迴。不受維度限制：$n$ 可以很大（例如 $n=10$ 或 $n=20$），計算時間只取決於你取樣的點數，而不是維度。<br>
 缺點：結果是近似值，精確度取決於隨機點的數量（收斂速度較慢）。<br><br>
 實作邏輯：計算積分範圍的總體積 $V$。<br>
-產生 $N$ 個隨機樣本點 $\mathbf{x}_1, \dots, \mathbf{x}_N$。<br>
-計算估計結果：$$\text{Result} \approx V \times \frac{1}{N} \sum_{i=1}^{N} f(\mathbf{x}_i)$$
+
