@@ -1,6 +1,6 @@
 |**習題1: 計算合併排序的複雜度 T(n) = T(n/2) + n**|
 | :---------------------------------------- |
-|[h1](/main/h1/image.png)|
+|[h1](https://github.com/codewhight/_alg/blob/main/h1/image.png)|
 |**習題2: 請用四種方法算 f(n) = 2^n (2的 n 次方）**|
 |[h2](https://github.com/codewhight/_alg/blob/main/h2/h2.py)|
 |**習題 3 : 請用 AI 問答的方式，了解暴力法的各種用途**|
